@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sentiment Analyzer</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: linear-gradient(120deg, #e0f7fa, #e3f2fd);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+    }
+    .container {
+      background: #fff;
+      padding: 30px;
+      border-radius: 15px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+      width: 400px;
+      text-align: center;
+    }
+    h1 {
+      color: #333;
+    }
+    textarea {
+      width: 100%;
+      height: 100px;
+      margin-top: 15px;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 10px;
+      resize: none;
+      font-size: 16px;
+    }
+    button {
+      margin-top: 15px;
+      padding: 10px 20px;
+      border: none;
+      background: #1976d2;
+      color: #fff;
+      font-size: 16px;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #0d47a1;
+    }
+    #result {
+      margin-top: 15px;
+      font-size: 18px;
+      font-weight: bold;
+    }
+    canvas {
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>💬 Sentiment Analyzer</h1>
+    <textarea id="userInput" placeholder="Type or paste your comment here..."></textarea>
+    <button onclick="analyzeSentiment()">Analyze Sentiment</button>
+    <div id="result"></div>
+    <canvas id="sentimentChart" width="300" height="300"></canvas>
+  </div>
+
+  <script>
+    async function analyzeSentiment() {
+      const userInput = document.getElementById("userInput").value.trim();
+      const resultDiv = document.getElementById("result");
+      const chartCanvas = document.getElementById("sentimentChart");
+      if (!userInput) {
+        resultDiv.innerHTML = "⚠️ Please enter a comment.";
+        return;
+      }
+      resultDiv.innerHTML = "⏳ Analyzing...";
+      try {
+        const response = await fetch("http://127.0.0.1:8000/predict", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: userInput })
+        });
+        const data = await response.json();
+        const sentiment = data.Sentiment.toUpperCase();
+        const confidence = data.Confidence;
+
+        resultDiv.innerHTML = `✅ Sentiment: <b>${sentiment}</b> | Confidence: <b>${confidence}%</b>`;
+
+        // Draw chart
+        const ctx = chartCanvas.getContext("2d");
+        if (window.sentimentChartInstance) window.sentimentChartInstance.destroy();
+        window.sentimentChartInstance = new Chart(ctx, {
+          type: "pie",
+          data: {
+            labels: ["Positive", "Negative"],
+            datasets: [{
+              data: sentiment === "POSITIVE" ? [confidence, 100 - confidence] : [100 - confidence, confidence],
+              backgroundColor: ["#4CAF50", "#F44336"]
+            }]
+          },
+          options: {
+            responsive: true,
+            plugins: {
+              legend: { position: "bottom" }
+            }
+          }
+        });
+      } catch (error) {
+        resultDiv.innerHTML = "❌ Error connecting to backend.";
+        console.error(error);
+      }
+    }
+  </script>
+</body>
+</html>
