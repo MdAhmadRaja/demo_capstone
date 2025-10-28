@@ -1,11 +1,17 @@
+# app.py
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from transformers import pipeline
 
+# Optional: where HF caches models (set by environment in Render)
+os.environ.setdefault("TRANSFORMERS_CACHE", os.environ.get("TRANSFORMERS_CACHE", "/tmp/transformers_cache"))
+
 app = FastAPI()
 
-# ✅ Allow frontend access
+# CORS - allow everything for now (you can restrict later)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -14,23 +20,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ✅ Load sentiment model
-sentiment_pipeline = pipeline(
-    "sentiment-analysis",
-    model="distilbert/distilbert-base-uncased-finetuned-sst-2-english"
-)
+# Serve the frontend from "static/" folder (put index.html there)
+app.mount("/", StaticFiles(directory="static", html=True), name="static")
+
+# Load sentiment model once (this may download the model if not cached)
+# We still keep this at import time; the prefetch script will fill cache during build.
+SENTIMENT_MODEL_NAME = "distilbert/distilbert-base-uncased-finetuned-sst-2-english"
+sentiment_pipeline = pipeline("sentiment-analysis", model=SENTIMENT_MODEL_NAME)
 
 class InputText(BaseModel):
     text: str
 
-# ✅ Base model sentiment
 def base_model_sentiment(text: str):
     result = sentiment_pipeline(text)[0]
     sentiment = "positive" if "POS" in result["label"].upper() else "negative"
     confidence = round(result["score"] * 100, 2)
     return sentiment, confidence
 
-# ✅ Human-like reasoning layer
 def human_like_verifier(text: str, predicted_sentiment: str, confidence: float):
     text_lower = text.lower()
 
@@ -42,13 +48,11 @@ def human_like_verifier(text: str, predicted_sentiment: str, confidence: float):
         "less feature", "slow", "lag", "issue", "problem"
     ]
 
-    # 🧠 Rule 1: Negation before positive
     if any(word in text_lower for word in negation_words):
         if predicted_sentiment == "positive":
             predicted_sentiment = "negative"
             confidence = min(confidence + 10, 99.9)
 
-    # 🧠 Rule 2: Handle contrast — weigh part after "but"/"however"
     for c_word in contrast_words:
         if f" {c_word} " in text_lower:
             parts = text_lower.split(f" {c_word} ", 1)
@@ -59,22 +63,18 @@ def human_like_verifier(text: str, predicted_sentiment: str, confidence: float):
             confidence = round(after_result["score"] * 100, 2)
             break
 
-    # 🧠 Rule 3: Check for negative comparative cues
     if any(word in text_lower for word in negative_cues):
         predicted_sentiment = "negative"
         confidence = max(confidence, 80)
 
-    # 🧠 Rule 4: Weak language → neutralize
     if any(word in text_lower for word in neutral_words):
         predicted_sentiment = "neutral"
         confidence = round(confidence * 0.8, 2)
 
-    # 🧠 Rule 5: Low confidence → neutral
     if confidence < 50:
         predicted_sentiment = "neutral"
 
     return predicted_sentiment, confidence
-
 
 @app.post("/predict")
 def predict_sentiment(data: InputText):
