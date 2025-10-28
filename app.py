@@ -1,41 +1,48 @@
-# app.py
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from transformers import pipeline
+from fastapi.responses import FileResponse
 
 # Optional: where HF caches models (set by environment in Render)
 os.environ.setdefault("TRANSFORMERS_CACHE", os.environ.get("TRANSFORMERS_CACHE", "/tmp/transformers_cache"))
 
 app = FastAPI()
 
-# CORS - allow everything for now (you can restrict later)
+# CORS (allow frontend to call backend)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],   # Allow all origins for testing
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Serve the frontend from "static/" folder (put index.html there)
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
+# Serve frontend (index.html must be inside /static/)
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Load sentiment model once (this may download the model if not cached)
-# We still keep this at import time; the prefetch script will fill cache during build.
+@app.get("/")
+def serve_index():
+    return FileResponse("static/index.html")
+
+
+# Load Sentiment Model
 SENTIMENT_MODEL_NAME = "distilbert/distilbert-base-uncased-finetuned-sst-2-english"
 sentiment_pipeline = pipeline("sentiment-analysis", model=SENTIMENT_MODEL_NAME)
 
+
 class InputText(BaseModel):
     text: str
+
 
 def base_model_sentiment(text: str):
     result = sentiment_pipeline(text)[0]
     sentiment = "positive" if "POS" in result["label"].upper() else "negative"
     confidence = round(result["score"] * 100, 2)
     return sentiment, confidence
+
 
 def human_like_verifier(text: str, predicted_sentiment: str, confidence: float):
     text_lower = text.lower()
@@ -75,6 +82,7 @@ def human_like_verifier(text: str, predicted_sentiment: str, confidence: float):
         predicted_sentiment = "neutral"
 
     return predicted_sentiment, confidence
+
 
 @app.post("/predict")
 def predict_sentiment(data: InputText):
